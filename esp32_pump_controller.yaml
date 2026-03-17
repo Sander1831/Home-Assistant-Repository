@@ -1,81 +1,16 @@
-esphome:
-  name: pump_controller
-  platform: ESP32
-  board: esp32dev
+# ESP32 Pump Controller Configuration
 
-wifi:
-  ssid: "Your_SSID"
-  password: "Your_PASSWORD"
+# Multi-Press Detection Configuration
 
-api:
-  services:
-    - service: control_pump
-      variables:
-        duration: int
-      then:
-        - delay: !lambda 'return duration * 60;'  # Delay in seconds
-        - switch.turn_off: pump_switch
-
-switch:
-  - platform: gpio
-    id: pump_switch
-    pin: GPIO12
-    restore_mode: ALWAYS_ON
-
-# Button configuration
-binary_sensor:
-  - platform: gpio
-    pin:
-      number: GPIO13
-      mode: INPUT_PULLUP
-      inverted: True
-    on_press:
-      - script.execute: handle_press
-
-script:
-  - id: handle_press
-    mode: queued
-    then:
-      - if:
-          condition:
-            - button.is_pressed:
-                id: button_handler
-                count: 1
-          then:
-            - logger.log: "Single Press detected"
-            - switch.turn_on: pump_switch
-            - delay: 60s
-            - switch.turn_off: pump_switch
-      - if:
-          condition:
-            - button.is_pressed:
-                id: button_handler
-                count: 2
-          then:
-            - logger.log: "Double Press detected"
-            - switch.turn_on: pump_switch
-            - delay: 180s
-            - switch.turn_off: pump_switch
-      - if:
-          condition:
-            - button.is_pressed:
-                id: button_handler
-                count: 3
-          then:
-            - logger.log: "Triple Press detected"
-            - switch.turn_on: pump_switch
-            - delay: 300s
-            - switch.turn_off: pump_switch
-      - if:
-          condition:
-            - button.is_pressed:
-                id: button_handler
-                count: 4
-          then:
-            - logger.log: "Long Press detected - Shutting down"
-            - switch.turn_off: pump_switch
-
-# Integration with Home Assistant
-homeassistant:
-  api:
-    password: "YOUR_API_PASSWORD"
+multi_press_detection:
+  - press: single
+    duration: 1m
+    action: activate
+  - press: double
+    duration: 3m
+    action: activate
+  - press: triple
+    duration: 5m
+    action: activate
+  - press: long
+    action: shutdown
