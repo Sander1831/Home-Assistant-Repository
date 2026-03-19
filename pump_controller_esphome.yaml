@@ -1,0 +1,7 @@
+# Pump Controller Configuration
+
+wifi:
+  ssid: "PC12#1"
+  password: "AleJoc#352Wa"
+
+# Add more configuration settings as needed.
