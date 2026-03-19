@@ -4,6 +4,76 @@ All code below is **copy-paste ready**. No modifications needed except your Wi-F
 
 ---
 
+## ⚡ QUICK START — Arduino IDE (paste and flash)
+
+> **Use this if you just want to flash the ESP32 right now.**
+
+**File to open:** `ro_pump_esp32.ino` (in this repository)
+
+### 4 steps to flash
+
+1. **Install Arduino IDE** → https://www.arduino.cc/en/software
+2. **Add ESP32 board support** — paste this URL in *File → Preferences → Additional boards manager URLs*:
+   ```
+   https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+   ```
+   Then *Tools → Board → Boards Manager* → search **esp32** → Install
+3. **Open the sketch** — *File → Open* → `ro_pump_esp32.ino`
+4. **Edit the 4 lines at the top** of the file:
+   ```cpp
+   const char* WIFI_SSID  = "YOUR_WIFI_SSID";       // ← your WiFi name
+   const char* WIFI_PASS  = "YOUR_WIFI_PASSWORD";    // ← your WiFi password
+   const char* HA_IP      = "192.168.1.100";         // ← your Home Assistant IP
+   const char* HA_TOKEN   = "YOUR_LONG_LIVED_ACCESS_TOKEN"; // ← from HA Profile page
+   ```
+   Then *Tools → Board → ESP32 Dev Module*, *Tools → Port → your COM port*, click **Upload**.
+
+### Get your HA Long-Lived Access Token
+Home Assistant → click your **username** (bottom-left) → **Security** tab → scroll to **Long-lived access tokens** → **Create token** → copy it.
+
+### Add this HA automation (receives pump state from ESP32)
+
+Paste into **Settings → Automations → Edit in YAML**:
+
+```yaml
+# ── Sync ESP32 pump state into HA ────────────────────────────────────────────
+- alias: "RO Pump — Sync ESP32 State"
+  id: ro_pump_sync_esp32_state
+  description: Updates HA when ESP32 turns pump on or off
+  trigger:
+    - platform: state
+      entity_id: input_boolean.ro_pump_running
+  action:
+    - choose:
+        - conditions:
+            - condition: state
+              entity_id: input_boolean.ro_pump_running
+              state: "on"
+          sequence:
+            - service: notify.persistent_notification
+              data:
+                title: "RO Pump ON"
+                message: >
+                  Pump started. Duration:
+                  {{ state_attr('input_boolean.ro_pump_running', 'duration_seconds') | int }} seconds.
+                notification_id: ro_pump_status
+        - conditions:
+            - condition: state
+              entity_id: input_boolean.ro_pump_running
+              state: "off"
+          sequence:
+            - service: persistent_notification.dismiss
+              data:
+                notification_id: ro_pump_status
+  mode: restart
+```
+
+Add this helper too (*Settings → Helpers → Create → Toggle*):
+- **Name:** `ro_pump_running`
+- **Entity ID:** `input_boolean.ro_pump_running`
+
+---
+
 ## Table of Contents
 1. [Hardware List](#hardware-list)
 2. [Wiring Diagram](#wiring-diagram)
