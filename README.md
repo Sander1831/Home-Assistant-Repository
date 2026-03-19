@@ -4,10 +4,20 @@
 
 ---
 
+## ⚡ Just Want the Code?
+
+**→ [AUTOMATION-CODE.md](AUTOMATION-CODE.md) — copy-paste ready YAML, nothing else**
+
+Two things to change: your button entity name and your relay entity name.  
+That's it. The file tells you exactly where.
+
+---
+
 ## 📂 All Documents & Where to Find Them
 
 | File | What's Inside |
 |------|--------------|
+| **[AUTOMATION-CODE.md](AUTOMATION-CODE.md)** | ⚡ Just the code — copy-paste ready YAML for both automations |
 | **[RO-PUMP-AUTOMATION-SETUP.md](RO-PUMP-AUTOMATION-SETUP.md)** | ✅ Main guide — wiring diagrams, setup steps, automation code, troubleshooting |
 | **[RO-PUMP-AUTOMATION-GUIDE.md](RO-PUMP-AUTOMATION-GUIDE.md)** | Overview guide — introduction, basic configuration reference |
 
@@ -38,7 +48,7 @@ All diagrams are inside **[RO-PUMP-AUTOMATION-SETUP.md](RO-PUMP-AUTOMATION-SETUP
 2. **Buy the parts** → [Shopping List](RO-PUMP-AUTOMATION-SETUP.md#shopping-list)
 3. **Wire everything up** → [Wiring Diagrams](RO-PUMP-AUTOMATION-SETUP.md#wiring-diagrams)
 4. **Set up Home Assistant** → [Home Assistant Setup](RO-PUMP-AUTOMATION-SETUP.md#home-assistant-setup)
-5. **Copy the automation code** → [Automation Code](RO-PUMP-AUTOMATION-SETUP.md#automation-code)
+5. **Copy the automation code** → [AUTOMATION-CODE.md](AUTOMATION-CODE.md) *(just the code, nothing else)*
 6. **Test it** → [Testing the System](RO-PUMP-AUTOMATION-SETUP.md#testing-the-system)
 7. **Something not working?** → [Troubleshooting](RO-PUMP-AUTOMATION-SETUP.md#troubleshooting)
 
