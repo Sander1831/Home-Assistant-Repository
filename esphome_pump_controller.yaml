@@ -1,0 +1,195 @@
+# ============================================================
+#  RO PUMP CONTROLLER — ESPHome Configuration
+#  Hardware:  ESP32 WROOM-32
+#  Button:    FLM19-FW-13  →  GPIO32  (hold 2 / 3 / 5 seconds)
+#  Relay:     1-Ch HIGH-level trigger  →  GPIO12  (pump control)
+#
+#  Hold 2 sec → release → pump runs  1 minute
+#  Hold 3 sec → release → pump runs  3 minutes
+#  Hold 5 sec → release → pump runs  5 minutes
+#  Safety:  pump forced OFF after 6 minutes regardless
+# ============================================================
+
+esphome:
+  name: ro-pump-controller
+  friendly_name: RO Pump Controller
+
+esp32:
+  board: esp32dev
+  framework:
+    type: arduino
+
+# ── Serial debug output ──────────────────────────────────────
+logger:
+  level: DEBUG
+  baud_rate: 115200
+
+# ── No WiFi — fully local GPIO operation ─────────────────────
+# Uncomment the wifi block below ONLY if you want OTA updates
+# wifi:
+#   ssid: "YOUR_SSID"
+#   password: "YOUR_PASSWORD"
+
+# ── Global variables ─────────────────────────────────────────
+globals:
+  # Timestamp (ms) recorded when button is pressed
+  - id: press_start_ms
+    type: uint32_t
+    restore_value: false
+    initial_value: '0'
+
+  # Timestamp (ms) recorded when pump turns ON (for safety timer)
+  - id: pump_on_start_ms
+    type: uint32_t
+    restore_value: false
+    initial_value: '0'
+
+  # True while a pump cycle is in progress
+  - id: pump_active
+    type: bool
+    restore_value: false
+    initial_value: 'false'
+
+# ── Button input  GPIO32 ──────────────────────────────────────
+# Wire: one button wire → GPIO32, other button wire → GND
+# Internal pull-up keeps GPIO32 HIGH when button is open;
+# pressing button pulls GPIO32 LOW → inverted: true reads ON.
+binary_sensor:
+  - platform: gpio
+    pin:
+      number: GPIO32
+      mode:
+        input: true
+        pullup: true
+      inverted: true      # LOW = pressed
+    id: pump_button
+    name: "Pump Button"
+    filters:
+      - delayed_on: 50ms   # debounce leading edge
+      - delayed_off: 50ms  # debounce trailing edge
+
+    on_press:
+      then:
+        - lambda: |-
+            id(press_start_ms) = millis();
+            ESP_LOGI("button", "Button PRESSED — hold for 2, 3, or 5 seconds then release");
+
+    on_release:
+      then:
+        - lambda: |-
+            uint32_t held_ms  = millis() - id(press_start_ms);
+            uint32_t held_sec = held_ms / 1000;
+            ESP_LOGI("button", "Button RELEASED after %u ms (%u seconds)", held_ms, held_sec);
+
+            if (id(pump_active)) {
+              ESP_LOGW("pump", "Pump is already running — button press ignored");
+            } else if (held_sec >= 5) {
+              ESP_LOGI("pump", "Hold ≥5 sec → starting 5-minute pump cycle");
+              id(run_pump_5min).execute();
+            } else if (held_sec >= 3) {
+              ESP_LOGI("pump", "Hold ≥3 sec → starting 3-minute pump cycle");
+              id(run_pump_3min).execute();
+            } else if (held_sec >= 2) {
+              ESP_LOGI("pump", "Hold ≥2 sec → starting 1-minute pump cycle");
+              id(run_pump_1min).execute();
+            } else {
+              ESP_LOGD("button", "Hold too short (%u sec) — need ≥2 sec, ignoring", held_sec);
+            }
+
+# ── Relay output  GPIO12 ──────────────────────────────────────
+# GPIO12 HIGH → relay coil energised → COM-NO closed → pump ON
+# GPIO12 LOW  → relay off             → COM-NO open   → pump OFF
+switch:
+  - platform: gpio
+    pin: GPIO12
+    id: pump_relay
+    name: "RO Pump Relay"
+    restore_mode: ALWAYS_OFF   # Safety: relay OFF on every boot
+
+# ── Timed pump scripts ────────────────────────────────────────
+script:
+  # 1-minute cycle (triggered by ≥2 sec hold)
+  - id: run_pump_1min
+    mode: single              # ignore new calls while running
+    then:
+      - lambda: |-
+          id(pump_active) = true;
+          id(pump_on_start_ms) = millis();
+      - logger.log:
+          level: INFO
+          format: ">>> PUMP ON  — 1-minute cycle started"
+      - switch.turn_on: pump_relay
+      - delay: 1min
+      - switch.turn_off: pump_relay
+      - lambda: |-
+          id(pump_active) = false;
+          id(pump_on_start_ms) = 0;
+      - logger.log:
+          level: INFO
+          format: ">>> PUMP OFF — 1-minute cycle complete"
+
+  # 3-minute cycle (triggered by ≥3 sec hold)
+  - id: run_pump_3min
+    mode: single
+    then:
+      - lambda: |-
+          id(pump_active) = true;
+          id(pump_on_start_ms) = millis();
+      - logger.log:
+          level: INFO
+          format: ">>> PUMP ON  — 3-minute cycle started"
+      - switch.turn_on: pump_relay
+      - delay: 3min
+      - switch.turn_off: pump_relay
+      - lambda: |-
+          id(pump_active) = false;
+          id(pump_on_start_ms) = 0;
+      - logger.log:
+          level: INFO
+          format: ">>> PUMP OFF — 3-minute cycle complete"
+
+  # 5-minute cycle (triggered by ≥5 sec hold)
+  - id: run_pump_5min
+    mode: single
+    then:
+      - lambda: |-
+          id(pump_active) = true;
+          id(pump_on_start_ms) = millis();
+      - logger.log:
+          level: INFO
+          format: ">>> PUMP ON  — 5-minute cycle started"
+      - switch.turn_on: pump_relay
+      - delay: 5min
+      - switch.turn_off: pump_relay
+      - lambda: |-
+          id(pump_active) = false;
+          id(pump_on_start_ms) = 0;
+      - logger.log:
+          level: INFO
+          format: ">>> PUMP OFF — 5-minute cycle complete"
+
+  # Emergency stop (used by safety timer and manual override)
+  - id: emergency_stop
+    then:
+      - switch.turn_off: pump_relay
+      - lambda: |-
+          id(pump_active) = false;
+          id(pump_on_start_ms) = 0;
+      - logger.log:
+          level: WARN
+          format: "!!! EMERGENCY STOP — pump forced OFF by safety timer"
+
+# ── Safety watchdog (checks every 10 s) ──────────────────────
+# Forces pump OFF if it has been running for ≥ 6 minutes (360 s)
+interval:
+  - interval: 10s
+    then:
+      - lambda: |-
+          if (id(pump_relay).state && id(pump_on_start_ms) > 0) {
+            uint32_t on_sec = (millis() - id(pump_on_start_ms)) / 1000;
+            ESP_LOGD("safety", "Pump has been running for %u seconds", on_sec);
+            if (on_sec >= 360) {   // 6-minute hard limit
+              ESP_LOGW("safety", "6-minute safety limit reached — forcing pump OFF");
+              id(emergency_stop).execute();
+            }
+          }
