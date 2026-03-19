@@ -1,16 +1,133 @@
 # ESP32 Pump Controller Configuration
+# Hold-Duration Detection — GPIO32 button, GPIO12 relay
+#
+# Hold ≥2 sec → release → pump runs 1 minute
+# Hold ≥3 sec → release → pump runs 3 minutes
+# Hold ≥5 sec → release → pump runs 5 minutes
+# Safety: pump forced OFF after 6 minutes
+#
+# See esphome_pump_controller.yaml for the complete ESPHome config.
 
-# Multi-Press Detection Configuration
+esphome:
+  name: ro-pump-controller
 
-multi_press_detection:
-  - press: single
-    duration: 1m
-    action: activate
-  - press: double
-    duration: 3m
-    action: activate
-  - press: triple
-    duration: 5m
-    action: activate
-  - press: long
-    action: shutdown
+esp32:
+  board: esp32dev
+  framework:
+    type: arduino
+
+logger:
+  level: DEBUG
+  baud_rate: 115200
+
+globals:
+  - id: press_start_ms
+    type: uint32_t
+    restore_value: false
+    initial_value: '0'
+  - id: pump_on_start_ms
+    type: uint32_t
+    restore_value: false
+    initial_value: '0'
+  - id: pump_active
+    type: bool
+    restore_value: false
+    initial_value: 'false'
+
+binary_sensor:
+  - platform: gpio
+    pin:
+      number: GPIO32
+      mode:
+        input: true
+        pullup: true
+      inverted: true
+    id: pump_button
+    name: "Pump Button"
+    filters:
+      - delayed_on: 50ms
+      - delayed_off: 50ms
+    on_press:
+      then:
+        - lambda: |-
+            id(press_start_ms) = millis();
+            ESP_LOGI("button", "Button PRESSED — hold 2/3/5 sec then release");
+    on_release:
+      then:
+        - lambda: |-
+            uint32_t held_sec = (millis() - id(press_start_ms)) / 1000;
+            ESP_LOGI("button", "Released after %u seconds", held_sec);
+            if (id(pump_active)) {
+              ESP_LOGW("pump", "Pump already running — ignored");
+            } else if (held_sec >= 5) {
+              id(run_pump_5min).execute();
+            } else if (held_sec >= 3) {
+              id(run_pump_3min).execute();
+            } else if (held_sec >= 2) {
+              id(run_pump_1min).execute();
+            }
+
+switch:
+  - platform: gpio
+    pin: GPIO12
+    id: pump_relay
+    name: "RO Pump Relay"
+    restore_mode: ALWAYS_OFF
+
+script:
+  - id: run_pump_1min
+    mode: single
+    then:
+      - lambda: |-
+          id(pump_active) = true;
+          id(pump_on_start_ms) = millis();
+      - switch.turn_on: pump_relay
+      - delay: 1min
+      - switch.turn_off: pump_relay
+      - lambda: |-
+          id(pump_active) = false;
+          id(pump_on_start_ms) = 0;
+
+  - id: run_pump_3min
+    mode: single
+    then:
+      - lambda: |-
+          id(pump_active) = true;
+          id(pump_on_start_ms) = millis();
+      - switch.turn_on: pump_relay
+      - delay: 3min
+      - switch.turn_off: pump_relay
+      - lambda: |-
+          id(pump_active) = false;
+          id(pump_on_start_ms) = 0;
+
+  - id: run_pump_5min
+    mode: single
+    then:
+      - lambda: |-
+          id(pump_active) = true;
+          id(pump_on_start_ms) = millis();
+      - switch.turn_on: pump_relay
+      - delay: 5min
+      - switch.turn_off: pump_relay
+      - lambda: |-
+          id(pump_active) = false;
+          id(pump_on_start_ms) = 0;
+
+  - id: emergency_stop
+    then:
+      - switch.turn_off: pump_relay
+      - lambda: |-
+          id(pump_active) = false;
+          id(pump_on_start_ms) = 0;
+
+interval:
+  - interval: 10s
+    then:
+      - lambda: |-
+          if (id(pump_relay).state && id(pump_on_start_ms) > 0) {
+            if ((millis() - id(pump_on_start_ms)) / 1000 >= 360) {
+              ESP_LOGW("safety", "6-minute safety limit — forcing pump OFF");
+              id(emergency_stop).execute();
+            }
+          }
