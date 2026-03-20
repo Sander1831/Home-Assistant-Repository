@@ -1,0 +1,71 @@
+esphome:
+  name: esp32_pump
+  platform: ESP32
+  board: esp32dev
+
+wifi:
+  ssid: "Your_SSID"
+  password: "Your_PASSWORD"
+
+# Enable Home Assistant API
+api:
+
+# Enable logging
+logger:
+
+# Enable OTA updates
+ota:
+
+# Pump configuration
+switch:
+  - platform: gpio
+    pin: GPIO19
+    id: pump_switch
+    name: "Pump Switch"
+    
+# Relay for Pump
+output:
+  - platform: gpio
+    pin: GPIO21
+    id: pump_output
+
+# Automation for pump timers
+time:
+  - platform: sntp
+    id: sntp_time
+
+interval:
+  - interval: 1min
+    then:
+      - if:
+          condition:
+            switch.is_on: pump_switch
+          then:
+            - output.turn_on: pump_output
+            - delay: 1min
+            - output.turn_off: pump_output
+          else:
+            - logger.log: "Pump is off."
+
+# Timers for 1, 3, and 5 minutes
+button:
+  - platform: template
+    name: "Start 1 Minute Pump"
+    on_press:
+      - switch.turn_on: pump_switch
+      - delay: 1min
+      - switch.turn_off: pump_switch
+
+  - platform: template
+    name: "Start 3 Minutes Pump"
+    on_press:
+      - switch.turn_on: pump_switch
+      - delay: 3min
+      - switch.turn_off: pump_switch
+
+  - platform: template
+    name: "Start 5 Minutes Pump"
+    on_press:
+      - switch.turn_on: pump_switch
+      - delay: 5min
+      - switch.turn_off: pump_switch
