@@ -1,0 +1,38 @@
+esphome:
+  name: pump_timer
+  platform: ESP32
+  board: esp32dev
+
+wifi:
+  ssid: "PC12#1"
+  password: "AleJoc@352Wa"
+
+# Enable logging
+logger:
+
+# Enable Home Assistant API
+api:
+  services:
+    - service: pump_control
+      variables:
+        state: bool
+      then:
+        - if:
+            condition:
+              state: pump
+            then:
+              - switch.turn_on: pump
+              - delay: 10s
+              - switch.turn_off: pump
+
+ota:
+
+# Home Assistant IP configuration
+homeassistant:
+  ip_address: 192.168.1.100
+
+switch:
+  - platform: gpio
+    pin: GPIO12
+    id: pump
+    name: "Pump"
