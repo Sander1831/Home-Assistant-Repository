@@ -1,4 +1,4 @@
-# RO Pump Automation Setup — One-Button Cycling Timer
+# RO Pump Automation Setup — One-Button Hold-Duration Timer
 
 > **Beginner-friendly guide** — no coding or electronics experience required!
 
@@ -20,20 +20,19 @@
 
 ## How It Works
 
-Each time you press the button, the pump runs for a different duration. It cycles through three timers and then repeats:
+Hold the button for a set number of seconds and the pump runs for the matching duration. Release the button to start the timer:
 
 ```
 ╔══════════════════════════════════════════════════════╗
-║           ONE-BUTTON CYCLING TIMER                   ║
+║         ONE-BUTTON HOLD-DURATION TIMER               ║
 ╠══════════════════════════════════════════════════════╣
-║  Press 1x  ──►  Pump ON  ──►  1 minute  ──►  Pump OFF ║
-║  Press 2x  ──►  Pump ON  ──►  3 minutes ──►  Pump OFF ║
-║  Press 3x  ──►  Pump ON  ──►  5 minutes ──►  Pump OFF ║
-║  Press 4x  ──►  Cycles back to 1 minute               ║
+║  Hold 2 sec  ──►  Release  ──►  Pump runs 1 minute   ║
+║  Hold 3 sec  ──►  Release  ──►  Pump runs 3 minutes  ║
+║  Hold 5 sec  ──►  Release  ──►  Pump runs 5 minutes  ║
 ╚══════════════════════════════════════════════════════╝
 ```
 
-**The sequence never stops — press the button as many times as you want and it always knows where it is in the cycle.**
+**Press and hold the button, watch the LED light up, then release — Home Assistant measures how long you held it and picks the right timer automatically.**
 
 ---
 
@@ -41,12 +40,12 @@ Each time you press the button, the pump runs for a different duration. It cycle
 
 | # | Item | Notes |
 |---|------|-------|
-| 1 | **IP67 Wireless WiFi Push Button** | Waterproof button (e.g., Tuya WiFi smart button) |
+| 1 | **FLM19-FW-13 Hardwired Push Button Switch** | IP67 waterproof, 19mm latching button, 12V–24V, rated switching current 15A–20A, 4-wire (2 black = switch, 2 colored = LED) |
 | 2 | **DieseRC 1-Channel WiFi Relay Module** | The relay that switches the pump on/off |
 | 3 | **RO Pump (your existing pump)** | Standard reverse osmosis pump |
-| 4 | **5V or 12V DC Power Supply** | To power the relay module (check relay label) |
+| 4 | **5V or 12V DC Power Supply** | To power the relay module and button LED (check relay label) |
 | 5 | **Home Assistant device** | Raspberry Pi, NUC, or any computer running HA |
-| 6 | **Electrical wire** | 18 AWG for pump wiring |
+| 6 | **Electrical wire** | 18 AWG for pump wiring; 1.5 mm² (15 AWG) for button wiring |
 | 7 | **Wire connectors / terminal blocks** | For safe connections |
 | 8 | **Screwdriver (small flathead)** | For relay terminal screws |
 
@@ -62,11 +61,11 @@ This diagram shows how all the pieces connect at a high level:
 ┌─────────────────────────────────────────────────────────────┐
 │                    YOUR HOME WIFI NETWORK                   │
 │                                                             │
-│  ┌──────────────┐         ┌──────────────────────────────┐  │
-│  │  IP67 WiFi   │  WiFi   │                              │  │
-│  │  Push Button │────────►│     HOME ASSISTANT           │  │
-│  │  (wireless)  │  signal │     (your smart home hub)   │  │
-│  └──────────────┘         │                              │  │
+│                           ┌──────────────────────────────┐  │
+│                           │                              │  │
+│                           │     HOME ASSISTANT           │  │
+│                           │     (your smart home hub)   │  │
+│                           │                              │  │
 │                           └──────────────┬───────────────┘  │
 │                                          │ WiFi command      │
 │                                          ▼                   │
@@ -82,12 +81,18 @@ This diagram shows how all the pieces connect at a high level:
                            │        RO PUMP MOTOR         │
                            │  (turns on / turns off)      │
                            └──────────────────────────────┘
+
+     ┌───────────────────────────────┐
+     │  FLM19-FW-13 BUTTON (wired)  │
+     │  [2 black wires → relay IN]   │──────► Relay controller input
+     │  [2 colored wires → LED pwr]  │        (binary_sensor in HA)
+     └───────────────────────────────┘
 ```
 
 **In plain English:**
-1. You press the button → Button sends a WiFi signal to Home Assistant
-2. Home Assistant counts your presses and picks the right timer (1, 3, or 5 min)
-3. Home Assistant tells the WiFi relay to turn ON
+1. You press and hold the button → Button LED lights up, switch closes
+2. You release the button → Home Assistant measures how long you held it
+3. Home Assistant picks the right timer (1, 3, or 5 min) and tells the WiFi relay to turn ON
 4. The relay switches the power to your pump ON
 5. When the timer runs out, Home Assistant tells the relay to turn OFF
 6. Pump turns OFF!
@@ -96,25 +101,29 @@ This diagram shows how all the pieces connect at a high level:
 
 ## Component Diagrams
 
-### 📦 IP67 WiFi Push Button (Front View)
+### 📦 FLM19-FW-13 Hardwired Push Button (Front View)
 
 ```
          ┌─────────────────┐
          │  ┌───────────┐  │
          │  │           │  │
-         │  │  PRESS    │  │   ← Big round button (press this!)
-         │  │   HERE    │  │
+         │  │  PRESS &  │  │   ← Latching button (each press toggles ON/OFF)
+         │  │   HOLD    │  │
          │  │           │  │
          │  └───────────┘  │
          │                 │
-         │  [LED light]    │   ← Blinks when connected to WiFi
+         │  [LED ring]     │   ← LED lights up when switch is ON
          │                 │
-         │  ~~~~ IP67 ~~~~ │   ← Waterproof rating
+         │  ~~~~ IP67 ~~~~ │   ← IP67 waterproof rating
          └─────────────────┘
 
-         No wires needed!
-         Runs on battery.
-         Connects via WiFi.
+         4 wires exit the back:
+         ● Black wire 1  ┐  Switch control
+         ● Black wire 2  ┘  (connect to relay input terminals)
+         ● Colored wire 1 ┐  LED indicator
+         ● Colored wire 2 ┘  (non-polarized, any polarity works)
+
+         Specs: 19 mm, 12V–24V, 15A–20A, 100,000 cycle service life
 ```
 
 ---
@@ -181,47 +190,58 @@ This diagram shows how all the pieces connect at a high level:
 ### Complete Wiring Diagram
 
 ```
-                    ╔══════════════════════════════════════╗
-                    ║     POWER SUPPLY (5V or 12V DC)      ║
-                    ║                                      ║
-                    ║  [+] Red ────────────────────┐       ║
-                    ║  [-] Black ──────────────┐   │       ║
-                    ╚══════════════════════════╪═══╪═══════╝
-                                               │   │
-                                               ▼   ▼
-                    ╔══════════════════════════════════════╗
-                    ║     DieseRC WiFi RELAY MODULE        ║
-                    ║                                      ║
-                    ║  ┌─────┐ ┌─────┐  ┌────┬────┬────┐  ║
-                    ║  │ VCC │ │ GND │  │COM │ NO │ NC │  ║
-                    ║  └──┬──┘ └──┬──┘  └──┬─┴──┬─┴────┘  ║
-                    ║     │      │         │    │          ║
-                    ╚═════╪══════╪═════════╪════╪══════════╝
-                          │      │         │    │
-                 Power(+) ┘      │ GND(-)  │    │
-                                 └─────────┘    │
-                                 (ground shared)│
-                                                │
-    ╔═══════════════════╗                       │
-    ║   WALL OUTLET     ║                       │
-    ║   (Mains power)   ║                       │
-    ║                   ║        ┌──────────────┘
-    ║  LIVE ────────────╫────────┤ COM  (relay common)
-    ║                   ║        │
-    ║  NEUTRAL ─────────╫────────┼──────────────────────┐
-    ║                   ║        │                      │
-    ║  EARTH/GND ───────╫──┐     │ NO  (normally open)  │
-    ║                   ║  │     └──────────────────┐   │
-    ╚═══════════════════╝  │                        │   │
-                           │     ╔══════════════════╪═══╪═══╗
-                           │     ║   RO PUMP MOTOR  │   │   ║
-                           │     ║                  │   │   ║
-                           │     ║  LIVE ───────────┘   │   ║
-                           │     ║  NEUTRAL─────────────┘   ║
-                           └─────╫──EARTH/GND               ║
-                                 ╚═══════════════════════════╝
+     ╔══════════════════════════════════════════════╗
+     ║   FLM19-FW-13 BUTTON                         ║
+     ║                                              ║
+     ║  [Black wire 1] ─────────────────────────────╫──► Relay controller
+     ║  [Black wire 2] ─────────────────────────────╫──► input terminal (GND)
+     ║                                              ║
+     ║  [Colored wire 1] ──────────────────┐        ║
+     ║  [Colored wire 2] ──────────────┐   │        ║
+     ╚═════════════════════════════════╪═══╪════════╝
+                                       │   │
+                         LED wire A    ┘   └  LED wire B  (non-polarized — either way)
+                                       │   │
+                     ╔═════════════════╪═══╪═════════════════════╗
+                     ║     POWER SUPPLY (12V DC)                 ║
+                     ║                                           ║
+                     ║  [+] Red ─────────────────────────┐       ║
+                     ║  [-] Black ───────────────────┐   │       ║
+                     ╚══════════════════════════════╪═══╪═══════╝
+                                                    │   │
+                                                    ▼   ▼
+                     ╔══════════════════════════════════════╗
+                     ║     DieseRC WiFi RELAY MODULE        ║
+                     ║                                      ║
+                     ║  ┌─────┐ ┌─────┐  ┌────┬────┬────┐  ║
+                     ║  │ VCC │ │ GND │  │COM │ NO │ NC │  ║
+                     ║  └──┬──┘ └──┬──┘  └──┬─┴──┬─┴────┘  ║
+                     ║     │      │         │    │          ║
+                     ╚═════╪══════╪═════════╪════╪══════════╝
+                           │      │         │    │
+                  Power(+) ┘      │ GND(-)  │    │
+                                  └─────────┘    │
+                                  (ground shared)│
+                                                 │
+     ╔═══════════════════╗                       │
+     ║   WALL OUTLET     ║                       │
+     ║   (Mains power)   ║                       │
+     ║                   ║        ┌──────────────┘
+     ║  LIVE ────────────╫────────┤ COM  (relay common)
+     ║                   ║        │
+     ║  NEUTRAL ─────────╫────────┼──────────────────────┐
+     ║                   ║        │                      │
+     ║  EARTH/GND ───────╫──┐     │ NO  (normally open)  │
+     ║                   ║  │     └──────────────────┐   │
+     ╚═══════════════════╝  │                        │   │
+                            │     ╔══════════════════╪═══╪═══╗
+                            │     ║   RO PUMP MOTOR  │   │   ║
+                            │     ║                  │   │   ║
+                            │     ║  LIVE ───────────┘   │   ║
+                            │     ║  NEUTRAL─────────────┘   ║
+                            └─────╫──EARTH/GND               ║
+                                  ╚═══════════════════════════╝
 ```
-
 ---
 
 ### Simplified Wiring (Easy-to-Read Version)
@@ -241,16 +261,18 @@ STEP 2: Connect the Pump to the Relay
   Earth/Ground          ──── Pump EARTH wire  (direct, bypasses relay)
 
 
-STEP 3: WiFi Button (no wires needed!)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  Just pair it with your WiFi network using the app — it runs on batteries!
+STEP 3: Wire the FLM19-FW-13 Button
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  Black wire 1   ──── Relay controller input terminal (signal)
+  Black wire 2   ──── Relay controller GND terminal
+  Colored wire 1 ──── Power supply (+) for LED  (non-polarized)
+  Colored wire 2 ──── Power supply (-) for LED  (either wire to either terminal)
 
 
 STEP 4: Relay Module WiFi (no wires needed!)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   Just pair it with your WiFi network using the app — it connects wirelessly!
 ```
-
 ---
 
 ### Relay "Normally Open" Explained
@@ -277,33 +299,31 @@ STEP 4: Relay Module WiFi (no wires needed!)
 
 ---
 
-### One-Button Cycling Timer Flow
+### One-Button Hold-Duration Timer Flow
 
 ```
   ┌─────────────────────────────────────────────────────────────┐
-  │                  BUTTON PRESS FLOW                          │
+  │                  BUTTON HOLD FLOW                           │
   └─────────────────────────────────────────────────────────────┘
 
-  You press button
+  Press & hold button (LED lights up)
        │
        ▼
   ┌────────────────────────────────────────────────────────────┐
-  │  Home Assistant counts presses                             │
+  │  Release button                                            │
   │                                                            │
-  │  Counter = 1? ─── YES ──► Set timer: 1 MINUTE             │
-  │       │                         │                          │
-  │       NO                        │                          │
-  │       │                         │                          │
-  │  Counter = 2? ─── YES ──► Set timer: 3 MINUTES            │
-  │       │                         │                          │
-  │       NO                        │                          │
-  │       │                         │                          │
-  │  Counter = 3? ─── YES ──► Set timer: 5 MINUTES            │
-  │       │                         │                          │
-  │       NO                        │                          │
-  │       │                         │                          │
-  │  Reset to 1  ◄──────────────────┘                         │
-  └────────────────────────────────────────────────────────────┘
+  │  Hold was ≥ 5 sec? ─ YES ──► Set timer: 5 MINUTES         │
+  │       │                            │                       │
+  │       NO                           │                       │
+  │       │                            │                       │
+  │  Hold was ≥ 3 sec? ─ YES ──► Set timer: 3 MINUTES         │
+  │       │                            │                       │
+  │       NO                           │                       │
+  │       │                            │                       │
+  │  Hold was ≥ 2 sec? ─ YES ──► Set timer: 1 MINUTE          │
+  │       │                            │                       │
+  │       NO  ──► Ignored (too short)  │                       │
+  └────────────────────────────────────┼───────────────────────┘
                 │
                 ▼
   ┌─────────────────────────────────────────────────────────────┐
@@ -330,7 +350,6 @@ STEP 4: Relay Module WiFi (no wires needed!)
   │  Relay opens → Power stops → RO Pump turns OFF  ■           │
   └─────────────────────────────────────────────────────────────┘
 ```
-
 ---
 
 ## Step-by-Step Wiring Instructions
@@ -348,50 +367,67 @@ STEP 4: Relay Module WiFi (no wires needed!)
 
 ---
 
-### Step 1 — Set Up the WiFi Button
+### Step 1 — Wire the FLM19-FW-13 Button
 
 ```
   ┌─────────────────────────────────────────────────────┐
   │                                                     │
-  │  1. Insert batteries into the IP67 WiFi button      │
+  │  Your FLM19-FW-13 has 4 wires:                     │
   │                                                     │
-  │  2. Download the Tuya or eWeLink app on your phone  │
-  │     (check your button's box for the correct app)   │
+  │  ● Black wire 1  ┐  Switch control wires            │
+  │  ● Black wire 2  ┘  (these connect the switch loop) │
   │                                                     │
-  │  3. Follow the app instructions to add the button   │
-  │     to your WiFi network                            │
+  │  ● Colored wire 1 ┐  LED indicator wires            │
+  │  ● Colored wire 2 ┘  (non-polarized — either way)  │
   │                                                     │
-  │  4. In Home Assistant, install the Tuya or eWeLink  │
-  │     integration (Settings → Integrations → + Add)   │
+  │  SWITCH WIRES (2 black wires):                      │
   │                                                     │
-  │  5. The button will appear as a device in HA        │
+  │  1. Connect Black wire 1 to the relay controller    │
+  │     signal/input terminal (or GPIO binary sensor)   │
+  │                                                     │
+  │  2. Connect Black wire 2 to the relay controller    │
+  │     GND terminal                                    │
+  │                                                     │
+  │  LED WIRES (2 colored wires):                       │
+  │                                                     │
+  │  3. Connect one colored wire to power supply (+)    │
+  │                                                     │
+  │  4. Connect the other colored wire to power         │
+  │     supply (−)  (polarity does not matter)          │
+  │                                                     │
+  │  Button wiring diagram:                             │
+  │                                                     │
+  │     Button                 Relay Controller         │
+  │     ┌──────────┐           ┌─────────────┐          │
+  │     │ Black 1  │───────────│ INPUT/SIG   │          │
+  │     │ Black 2  │───────────│ GND         │          │
+  │     └──────────┘           └─────────────┘          │
+  │                                                     │
+  │     ┌──────────┐           ┌─────────────┐          │
+  │     │ Color 1  │───────────│ 12V (+)     │          │
+  │     │ Color 2  │───────────│ 12V (−)     │          │
+  │     └──────────┘           └─────────────┘          │
   │                                                     │
   └─────────────────────────────────────────────────────┘
 ```
-
----
-
 ### Step 2 — Set Up the WiFi Relay Module
 
 ```
   ┌─────────────────────────────────────────────────────┐
   │                                                     │
   │  1. Download the Tuya or eWeLink app on your phone  │
-  │     (same app as the button, usually)               │
+  │     (check your relay's box for the correct app)    │
   │                                                     │
   │  2. Follow the app instructions to add the relay    │
   │     to your WiFi network                            │
   │                                                     │
-  │  3. In Home Assistant, it should already appear     │
-  │     if you set up the integration in Step 1         │
+  │  3. In Home Assistant, install the Tuya or eWeLink  │
+  │     integration (Settings → Integrations → + Add)   │
   │                                                     │
   │  4. The relay will appear as a "Switch" in HA       │
   │                                                     │
   └─────────────────────────────────────────────────────┘
 ```
-
----
-
 ### Step 3 — Power the Relay Module
 
 ```
@@ -483,7 +519,8 @@ STEP 4: Relay Module WiFi (no wires needed!)
   │  □  Wall EARTH connected directly to pump EARTH     │
   │  □  All terminal screws are tight                   │
   │  □  No bare wires are touching each other           │
-  │  □  WiFi button is paired to app and Home Assistant │
+  │  □  Button black wires connected to relay controller   │
+  │  □  Button colored wires connected to 12V power supply │
   │  □  WiFi relay is paired to app and Home Assistant  │
   │                                                     │
   │  ✅ All checked? Safe to power on!                  │
@@ -495,19 +532,24 @@ STEP 4: Relay Module WiFi (no wires needed!)
 
 ## Home Assistant Setup
 
-### Step 1 — Create a Counter Helper
+### Step 1 — Add the Hardwired Button as a Binary Sensor
 
-The counter tracks how many times you press the button (1, 2, or 3):
+The FLM19-FW-13 is wired directly to your relay controller. Home Assistant sees it as a **binary sensor** (ON when button is held, OFF when released):
 
-1. Go to **Settings** → **Devices & Services** → **Helpers**
-2. Click **+ Create Helper**
-3. Choose **Counter**
-4. Set:
-   - **Name:** `RO Pump Press Counter`
-   - **Minimum:** `0`
-   - **Maximum:** `3`
-   - **Step:** `1`
-5. Click **Create**
+1. Go to **Settings** → **Devices & Services**
+2. Find your relay controller device and open it
+3. Look for the binary sensor entity that corresponds to the button input
+4. Note its entity name (e.g., `binary_sensor.ro_pump_button`)
+
+> **Note:** If your relay controller does not expose a binary sensor for the button input, you may need to configure one in your `configuration.yaml`. Example for a Raspberry Pi GPIO pin:
+> ```yaml
+> binary_sensor:
+>   - platform: gpio
+>     pin: 17          # ← Replace with the GPIO pin number connected to the button's black wire
+>     name: "RO Pump Button"
+>     device_class: connectivity
+> ```
+> See the [Home Assistant GPIO Binary Sensor docs](https://www.home-assistant.io/integrations/binary_sensor.gpio/) for details.
 
 ### Step 2 — Create an Input Boolean Helper
 
@@ -523,39 +565,41 @@ This tracks whether the pump is currently running:
 ### Step 3 — Find Your Device Names
 
 1. Go to **Settings** → **Devices & Services**
-2. Find your **WiFi Button** — note its entity name (e.g., `binary_sensor.wifi_button`)
+2. Find your **Button Binary Sensor** — note its entity name (e.g., `binary_sensor.ro_pump_button`)
 3. Find your **WiFi Relay** — note its entity name (e.g., `switch.ro_pump_relay`)
 
 ---
-
 ## Automation Code
 
-Copy and paste this into your Home Assistant automations. Replace `binary_sensor.wifi_button` with your actual button entity name, and `switch.ro_pump_relay` with your actual relay entity name.
+Copy and paste this into your Home Assistant automations. Replace `binary_sensor.ro_pump_button` with your actual button entity name, and `switch.ro_pump_relay` with your actual relay entity name.
 
-### Automation 1 — Count Button Presses
+### Automation 1 — Hold-Duration Timer
+
+This automation triggers when the button is released (toggled back to OFF) and checks how long it was held:
 
 ```yaml
-alias: "RO Pump - Count Button Press"
-description: "Counts how many times the button is pressed and picks the timer"
+alias: "RO Pump - Hold Duration Timer"
+description: "Hold 2s = 1 min, hold 3s = 3 min, hold 5s = 5 min"
 trigger:
   - platform: state
-    entity_id: binary_sensor.wifi_button   # ← Replace with your button entity
-    to: "on"
+    entity_id: binary_sensor.ro_pump_button   # ← Replace with your button entity
+    to: "off"
 condition:
   - condition: state
     entity_id: input_boolean.ro_pump_running
-    state: "off"                           # Only count if pump is not running
+    state: "off"                              # Only start if pump is not already running
 action:
-  - service: counter.increment
-    target:
-      entity_id: counter.ro_pump_press_counter
-  - delay:
-      seconds: 4                           # Wait 4 seconds for more presses
+  - variables:
+      hold_seconds: >
+        {% if trigger.from_state.state == "on" %}
+          {{ (now() - trigger.from_state.last_changed).total_seconds() | int }}
+        {% else %}
+          0
+        {% endif %}
   - choose:
       - conditions:
-          - condition: state
-            entity_id: counter.ro_pump_press_counter
-            state: "1"
+          - condition: template
+            value_template: "{{ hold_seconds >= 5 }}"
         sequence:
           - service: input_boolean.turn_on
             target:
@@ -564,20 +608,16 @@ action:
             target:
               entity_id: switch.ro_pump_relay  # ← Replace with your relay entity
           - delay:
-              minutes: 1                   # 1 MINUTE timer
+              minutes: 5                        # 5 MINUTES timer
           - service: switch.turn_off
             target:
               entity_id: switch.ro_pump_relay
           - service: input_boolean.turn_off
             target:
               entity_id: input_boolean.ro_pump_running
-          - service: counter.reset
-            target:
-              entity_id: counter.ro_pump_press_counter
       - conditions:
-          - condition: state
-            entity_id: counter.ro_pump_press_counter
-            state: "2"
+          - condition: template
+            value_template: "{{ hold_seconds >= 3 }}"
         sequence:
           - service: input_boolean.turn_on
             target:
@@ -586,20 +626,16 @@ action:
             target:
               entity_id: switch.ro_pump_relay
           - delay:
-              minutes: 3                   # 3 MINUTES timer
+              minutes: 3                        # 3 MINUTES timer
           - service: switch.turn_off
             target:
               entity_id: switch.ro_pump_relay
           - service: input_boolean.turn_off
             target:
               entity_id: input_boolean.ro_pump_running
-          - service: counter.reset
-            target:
-              entity_id: counter.ro_pump_press_counter
       - conditions:
-          - condition: state
-            entity_id: counter.ro_pump_press_counter
-            state: "3"
+          - condition: template
+            value_template: "{{ hold_seconds >= 2 }}"
         sequence:
           - service: input_boolean.turn_on
             target:
@@ -608,46 +644,52 @@ action:
             target:
               entity_id: switch.ro_pump_relay
           - delay:
-              minutes: 5                   # 5 MINUTES timer
+              minutes: 1                        # 1 MINUTE timer
           - service: switch.turn_off
             target:
               entity_id: switch.ro_pump_relay
           - service: input_boolean.turn_off
             target:
               entity_id: input_boolean.ro_pump_running
-          - service: counter.reset
-            target:
-              entity_id: counter.ro_pump_press_counter
+      # If held less than 2 seconds, do nothing (accidental press ignored)
 mode: single
 ```
+
+> **How it works:**
+> - `trigger.from_state.last_changed` is the timestamp when the button state became "on" (when you pressed it)
+> - When the button goes back to "off" (released), Home Assistant calculates the duration
+> - The `choose` block checks longest duration first (5s → 3s → 2s) so it always matches the right tier
+> - Holds shorter than 2 seconds are silently ignored (prevents accidental triggers)
 
 ### Automation 2 — Emergency Stop (Safety!)
 
 ```yaml
 alias: "RO Pump - Emergency Stop"
-description: "Long press the button to stop the pump immediately"
+description: "Toggle the button ON then OFF quickly to stop the pump immediately"
 trigger:
   - platform: state
-    entity_id: binary_sensor.wifi_button   # ← Replace with your button entity
-    to: "on"
-    for:
-      seconds: 3                           # Hold button for 3 seconds = STOP
-condition: []
+    entity_id: binary_sensor.ro_pump_button   # ← Replace with your button entity
+    to: "off"
+condition:
+  - condition: state
+    entity_id: input_boolean.ro_pump_running
+    state: "on"                               # Only stop if pump is actually running
+  - condition: template
+    value_template: >
+      {{ trigger.from_state.state == "on" and
+         (now() - trigger.from_state.last_changed).total_seconds() < 2 }}
+                                              # Quick toggle (< 2 sec) = emergency stop
 action:
   - service: switch.turn_off
     target:
-      entity_id: switch.ro_pump_relay      # ← Replace with your relay entity
+      entity_id: switch.ro_pump_relay         # ← Replace with your relay entity
   - service: input_boolean.turn_off
     target:
       entity_id: input_boolean.ro_pump_running
-  - service: counter.reset
-    target:
-      entity_id: counter.ro_pump_press_counter
 mode: single
 ```
 
 ---
-
 ## Testing the System
 
 ```
@@ -655,10 +697,11 @@ mode: single
   │  TEST 1: Button connects to Home Assistant          │
   │                                                     │
   │  1. Go to HA → Settings → Devices                   │
-  │  2. Find your button device                         │
-  │  3. Press the button                                │
+  │  2. Find your button binary sensor entity           │
+  │  3. Press and hold the button                       │
   │  4. Watch the entity state change to "on"           │
-  │  5. ✅ If it changes, the button is working         │
+  │  5. Release the button — state should go to "off"   │
+  │  6. ✅ If it toggles, the button is working         │
   └─────────────────────────────────────────────────────┘
 
   ┌─────────────────────────────────────────────────────┐
@@ -677,56 +720,65 @@ mode: single
   │  TEST 3: Full System Test (with water disconnected) │
   │                                                     │
   │  1. Enable the automation                           │
-  │  2. Press button ONCE → pump should run 1 minute    │
-  │  3. Press button TWICE → pump should run 3 minutes  │
-  │  4. Press button THREE TIMES → pump should run 5min │
+  │  2. Hold button ~2 sec, release → 1 minute pump     │
+  │  3. Hold button ~3 sec, release → 3 minutes pump    │
+  │  4. Hold button ~5 sec, release → 5 minutes pump    │
   │  5. ✅ If all three work, your system is ready!     │
+  └─────────────────────────────────────────────────────┘
+
+  ┌─────────────────────────────────────────────────────┐
+  │  TEST 4: Emergency Stop Test                        │
+  │                                                     │
+  │  1. Start a pump timer (hold 2+ sec)                │
+  │  2. While pump is running, quickly toggle the       │
+  │     button ON and back OFF (< 2 seconds)            │
+  │  3. The pump should stop immediately                │
+  │  4. ✅ Emergency stop is working                    │
   └─────────────────────────────────────────────────────┘
 ```
 
 ---
-
 ## Troubleshooting
 
 | Problem | Likely Cause | Solution |
 |---------|-------------|---------|
-| Button press does nothing | Button not linked to HA | Check Tuya/eWeLink integration in HA Settings → Integrations |
+| Button hold does nothing | Button not linked to HA as binary sensor | Check that the button's black wires are connected to the relay controller input; verify the `binary_sensor` entity appears in HA |
+| Button LED does not light up | LED wires not connected | Check the colored wires are connected to the 12V power supply (non-polarized — swap if needed) |
 | Pump runs but won't stop | Automation error | Check HA logs → Settings → System → Logs |
 | Relay clicks but pump doesn't start | Wiring issue | Check COM and NO are connected, not COM and NC |
 | Pump runs continuously | Wired to NC instead of NO | Move pump wire from NC terminal to NO terminal |
-| Counter doesn't reset | Automation mode issue | Change automation mode to `single` |
-| Second/third press doesn't work | Press too slow | Press all buttons within 4 seconds (the collection window) |
+| Hold duration triggers wrong timer | Hold too short or too long | Practice holding exactly 2, 3, or 5 seconds; watch HA logs to see `hold_seconds` value |
+| Accidental 2-second hold starts pump | Threshold too low | Increase the `>= 2` threshold in the automation template (e.g., `>= 3`) so shorter holds are ignored |
 | WiFi relay drops offline | Weak WiFi signal | Move router/extender closer or use a WiFi extender |
-| Pump starts but counter is wrong | Multiple triggers | Add condition to check `input_boolean.ro_pump_running` is off |
+| Pump starts but `ro_pump_running` is wrong | Multiple triggers | Ensure automation mode is `single` and `input_boolean.ro_pump_running` is toggled correctly |
 
 ---
-
 ## Quick Reference Card
 
 Print this out and keep it near your RO system:
 
 ```
-  ╔══════════════════════════════════════╗
-  ║      RO PUMP QUICK REFERENCE         ║
-  ╠══════════════════════════════════════╣
-  ║  Press 1x = 1 minute (quick rinse)   ║
-  ║  Press 2x = 3 minutes (normal fill)  ║
-  ║  Press 3x = 5 minutes (full fill)    ║
-  ║  Hold 3s  = EMERGENCY STOP           ║
-  ╚══════════════════════════════════════╝
+  ╔══════════════════════════════════════════╗
+  ║        RO PUMP QUICK REFERENCE           ║
+  ╠══════════════════════════════════════════╣
+  ║  Hold 2 sec = 1 minute  (quick rinse)    ║
+  ║  Hold 3 sec = 3 minutes (normal fill)    ║
+  ║  Hold 5 sec = 5 minutes (full fill)      ║
+  ║  Quick toggle (< 2 sec) = EMERGENCY STOP ║
+  ╚══════════════════════════════════════════╝
 ```
 
 ---
 
 ## Conclusion
 
-Your one-button RO pump cycling timer is now fully set up! Here is a recap of what you built:
+Your one-button RO pump hold-duration timer is now fully set up! Here is a recap of what you built:
 
-- ✅ **IP67 WiFi Button** — Wireless, waterproof, battery-powered
-- ✅ **Home Assistant** — Counts your button presses and manages the timer
+- ✅ **FLM19-FW-13 Hardwired Button** — IP67 waterproof, latching toggle, 4-wire (2 black = switch, 2 colored = LED)
+- ✅ **Home Assistant** — Measures how long you hold the button and manages the timer
 - ✅ **DieseRC WiFi Relay** — Switches the pump power on and off safely
-- ✅ **One-button cycling** — 1 press = 1 min, 2 presses = 3 min, 3 presses = 5 min
-- ✅ **Emergency stop** — Hold button 3 seconds to stop pump immediately
+- ✅ **Hold-duration timer** — Hold 2 sec = 1 min, hold 3 sec = 3 min, hold 5 sec = 5 min
+- ✅ **Emergency stop** — Quick toggle (< 2 sec) stops the pump immediately
 
 If you need help or something isn't working, check the [Home Assistant Community Forums](https://community.home-assistant.io/) — there are thousands of helpful people there!
 
