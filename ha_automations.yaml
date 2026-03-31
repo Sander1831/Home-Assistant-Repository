@@ -27,7 +27,7 @@
 #   timer:
 #     ro_pump_timer:
 #       name: "RO Pump Timer"
-#       duration: "00:01:00"
+#       duration: "00:02:00"
 #       restore: true
 #       icon: mdi:timer
 #
@@ -47,11 +47,12 @@
   description: >
     Receives the ESPHome event (esphome.pump_button_pressed), sets the run
     duration based on the press count, turns the pump on, and starts the timer.
+    1 press = 2 min, 2 presses = 3 min, 3+ presses = 5 min.
   trigger:
     - platform: event
       event_type: esphome.pump_button_pressed
   action:
-    # Set duration based on press count (1 press=60s, 2=180s, 3+=300s)
+    # Set duration based on press count (1 press=120s, 2=180s, 3+=300s)
     - choose:
         - conditions:
             - condition: template
@@ -61,7 +62,7 @@
               target:
                 entity_id: input_number.ro_pump_run_seconds
               data:
-                value: 60           # 1 minute
+                value: 120          # 2 minutes
 
         - conditions:
             - condition: template

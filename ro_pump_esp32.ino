@@ -15,7 +15,7 @@
  *   ESP32 GND    → RELAY GND
  *
  * BEHAVIOR:
- *   1 press  → pump runs 1 minute
+ *   1 press  → pump runs 2 minutes
  *   2 presses → pump runs 3 minutes
  *   3+ presses → pump runs 5 minutes
  *   Press while running → stops pump immediately
@@ -29,7 +29,7 @@
 #include <HTTPClient.h>
 
 // ─── CHANGE THESE ─────────────────────────────────────────────────────────────
-const char* WIFI_SSID  = "YOUR_WIFI_SSID";
+const char* WIFI_SSID  = "PC12#1";
 const char* WIFI_PASS  = "YOUR_WIFI_PASSWORD";
 const char* HA_IP      = "192.168.1.100";   // your Home Assistant IP address
 const char* HA_TOKEN   = "YOUR_LONG_LIVED_ACCESS_TOKEN"; // HA → Profile → Long-Lived Access Tokens
@@ -170,7 +170,7 @@ void loop() {
       stopPump("button pressed while running");
     } else {
       if (count == 1) {
-        startPump(60);    // 1 minute
+        startPump(120);   // 2 minutes
       } else if (count == 2) {
         startPump(180);   // 3 minutes
       } else {

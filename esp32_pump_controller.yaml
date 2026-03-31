@@ -33,7 +33,7 @@ esp32:
 
 # ── Wi-Fi ─────────────────────────────────────────────────────────────────────
 wifi:
-  ssid: "YOUR_WIFI_SSID"
+  ssid: "PC12#1"
   password: "YOUR_WIFI_PASSWORD"
 
   # Fallback hotspot — ESP32 creates this AP if it cannot reach your Wi-Fi
