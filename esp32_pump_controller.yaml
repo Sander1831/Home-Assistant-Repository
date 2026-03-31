@@ -1,16 +1,147 @@
-# ESP32 Pump Controller Configuration
+# =============================================================================
+# FILE: esp32_pump_controller.yaml
+# Flash with:  esphome run esp32_pump_controller.yaml
+#
+# STEP 1 — Replace the three placeholder values below:
+#   YOUR_WIFI_SSID        → your Wi-Fi network name
+#   YOUR_WIFI_PASSWORD    → your Wi-Fi password
+#   YOUR_OTA_PASSWORD     → any password you want for over-the-air updates
+#
+# STEP 2 — Generate an API encryption key (run once on your PC):
+#   esphome generate-key
+#   Paste the output into the api → encryption → key field below.
+#
+# STEP 3 — Flash (USB first time, then OTA):
+#   esphome run esp32_pump_controller.yaml
+#
+# WIRING SUMMARY:
+#   GPIO18 → BUTTON COM pin  (other side of button → GND, internal pull-up used)
+#   GPIO25 → BASE of NPN transistor (1 kΩ series resistor) → drives 12V LED ring
+#   GPIO26 → RELAY IN  (HIGH = relay ON = pump ON)
+#   ESP32 5V / VIN → RELAY VCC
+#   ESP32 GND      → RELAY GND, TRANSISTOR EMITTER
+# =============================================================================
 
-# Multi-Press Detection Configuration
+esphome:
+  name: ro-pump-controller
+  friendly_name: RO Pump Controller
 
-multi_press_detection:
-  - press: single
-    duration: 1m
-    action: activate
-  - press: double
-    duration: 3m
-    action: activate
-  - press: triple
-    duration: 5m
-    action: activate
-  - press: long
-    action: shutdown
+esp32:
+  board: esp32dev
+  framework:
+    type: arduino
+
+# ── Wi-Fi ─────────────────────────────────────────────────────────────────────
+wifi:
+  ssid: "PC12#1"
+  password: "YOUR_WIFI_PASSWORD"
+
+  # Fallback hotspot — ESP32 creates this AP if it cannot reach your Wi-Fi
+  ap:
+    ssid: "RO-Pump-Fallback"
+    password: "changeme123"
+
+captive_portal:
+
+# ── Logging / API / OTA ───────────────────────────────────────────────────────
+logger:
+
+api:
+  encryption:
+    key: "REPLACE_WITH_32_BYTE_BASE64_KEY"   # run: esphome generate-key
+
+ota:
+  - platform: esphome
+    password: "YOUR_OTA_PASSWORD"
+
+# ── Global variable: counts button presses within the 600 ms window ───────────
+globals:
+  - id: press_count
+    type: int
+    restore_value: no
+    initial_value: '0'
+
+# ── Button input ──────────────────────────────────────────────────────────────
+#   GPIO18, active-LOW (button shorts GPIO18 to GND)
+#   Internal pull-up enabled — no external resistor needed
+binary_sensor:
+  - platform: gpio
+    pin:
+      number: GPIO18
+      mode:
+        input: true
+        pullup: true
+      inverted: true        # LOW when pressed → treated as ON
+    name: "Pump Button"
+    id: pump_button
+    filters:
+      - delayed_on:  50ms   # debounce: ignore spikes shorter than 50 ms
+      - delayed_off: 50ms
+    on_press:
+      then:
+        # Increment counter then (re)start the 600 ms detection window
+        - globals.set:
+            id: press_count
+            value: !lambda 'return id(press_count) + 1;'
+        - script.execute: detect_press_count
+
+# ── Multi-press detection script ──────────────────────────────────────────────
+#   mode: restart — every new press resets the 600 ms window.
+#   After 600 ms of silence the accumulated count is fired as an HA event.
+script:
+  - id: detect_press_count
+    mode: restart
+    then:
+      - delay: 600ms
+      - if:
+          condition:
+            lambda: 'return id(press_count) >= 3;'
+          then:
+            - homeassistant.event:
+                event: esphome.pump_button_pressed
+                data:
+                  presses: "3"
+          else:
+            - if:
+                condition:
+                  lambda: 'return id(press_count) == 2;'
+                then:
+                  - homeassistant.event:
+                      event: esphome.pump_button_pressed
+                      data:
+                        presses: "2"
+                else:
+                  - homeassistant.event:
+                      event: esphome.pump_button_pressed
+                      data:
+                        presses: "1"
+      # Reset counter after firing
+      - globals.set:
+          id: press_count
+          value: '0'
+
+# ── Relay output ──────────────────────────────────────────────────────────────
+#   GPIO26, high-level trigger (HIGH = relay energised = pump ON)
+#   ALWAYS_OFF ensures pump is off on every boot / power cycle
+switch:
+  - platform: gpio
+    pin: GPIO26
+    name: "RO Pump Relay"
+    id: pump_relay
+    restore_mode: ALWAYS_OFF
+    icon: "mdi:water-pump"
+
+# ── Button LED output ─────────────────────────────────────────────────────────
+#   GPIO25 → 1 kΩ → NPN transistor base
+#   Transistor collector → 470 Ω → LED(-) of FLM19-FW-13
+#   LED(+) → +12V
+output:
+  - platform: gpio
+    pin: GPIO25
+    id: led_output
+
+light:
+  - platform: binary
+    name: "Button LED"
+    id: button_led
+    output: led_output

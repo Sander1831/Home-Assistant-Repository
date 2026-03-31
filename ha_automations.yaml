@@ -1,0 +1,163 @@
+# =============================================================================
+# HOME ASSISTANT — RO PUMP AUTOMATION
+# =============================================================================
+#
+# WHAT TO DO WITH THIS FILE:
+#
+#   OPTION A — Paste into automations.yaml
+#     Open your <config>/automations.yaml and append the contents below.
+#     Then: Developer Tools → Check configuration → Restart Home Assistant.
+#
+#   OPTION B — Import via UI
+#     Settings → Automations & Scenes → Automations
+#     (top-right menu) → Edit in YAML → paste the three blocks below.
+#
+# HELPERS REQUIRED (add to configuration.yaml OR create via Settings → Helpers):
+#
+#   input_number:
+#     ro_pump_run_seconds:
+#       name: "RO Pump Run Duration (seconds)"
+#       min: 0
+#       max: 600
+#       step: 1
+#       mode: box
+#       unit_of_measurement: "s"
+#       icon: mdi:timer-outline
+#
+#   timer:
+#     ro_pump_timer:
+#       name: "RO Pump Timer"
+#       duration: "00:02:00"
+#       restore: true
+#       icon: mdi:timer
+#
+# ENTITY IDs (from ESPHome device named "ro-pump-controller"):
+#   switch.ro_pump_controller_ro_pump_relay
+#   light.ro_pump_controller_button_led
+#   binary_sensor.ro_pump_controller_pump_button
+#
+#   If your ESPHome device has a different name, replace "ro_pump_controller"
+#   in all entity_id values with the actual device name slug.
+# =============================================================================
+
+
+# ── 1. Respond to button press event fired by ESP32 ───────────────────────────
+- alias: "RO Pump — Button Pressed"
+  id: ro_pump_button_pressed
+  description: >
+    Receives the ESPHome event (esphome.pump_button_pressed), sets the run
+    duration based on the press count, turns the pump on, and starts the timer.
+    1 press = 2 min, 2 presses = 3 min, 3+ presses = 5 min.
+  trigger:
+    - platform: event
+      event_type: esphome.pump_button_pressed
+  action:
+    # Set duration based on press count (1 press=120s, 2=180s, 3+=300s)
+    - choose:
+        - conditions:
+            - condition: template
+              value_template: "{{ trigger.event.data.presses | int == 1 }}"
+          sequence:
+            - service: input_number.set_value
+              target:
+                entity_id: input_number.ro_pump_run_seconds
+              data:
+                value: 120          # 2 minutes
+
+        - conditions:
+            - condition: template
+              value_template: "{{ trigger.event.data.presses | int == 2 }}"
+          sequence:
+            - service: input_number.set_value
+              target:
+                entity_id: input_number.ro_pump_run_seconds
+              data:
+                value: 180          # 3 minutes
+
+        - conditions:
+            - condition: template
+              value_template: "{{ trigger.event.data.presses | int >= 3 }}"
+          sequence:
+            - service: input_number.set_value
+              target:
+                entity_id: input_number.ro_pump_run_seconds
+              data:
+                value: 300          # 5 minutes
+
+    # Turn pump ON
+    - service: switch.turn_on
+      target:
+        entity_id: switch.ro_pump_controller_ro_pump_relay
+
+    # Turn button LED ON (visual feedback: pump is running)
+    - service: light.turn_on
+      target:
+        entity_id: light.ro_pump_controller_button_led
+
+    # Start (or restart) the countdown timer
+    - service: timer.start
+      target:
+        entity_id: timer.ro_pump_timer
+      data:
+        duration: >
+          {{ states('input_number.ro_pump_run_seconds') | int }}
+
+  # "restart" means a new press mid-run resets the full duration
+  mode: restart
+
+
+# ── 2. Turn pump OFF when the countdown timer finishes ───────────────────────
+- alias: "RO Pump — Timer Expired, Pump OFF"
+  id: ro_pump_timer_expired
+  description: Turns the pump and LED off when the countdown timer reaches zero.
+  trigger:
+    - platform: event
+      event_type: timer.finished
+      event_data:
+        entity_id: timer.ro_pump_timer
+  action:
+    - service: switch.turn_off
+      target:
+        entity_id: switch.ro_pump_controller_ro_pump_relay
+
+    - service: light.turn_off
+      target:
+        entity_id: light.ro_pump_controller_button_led
+
+  mode: single
+
+
+# ── 3. Safety shutoff — pump cannot run longer than 6 minutes ────────────────
+- alias: "RO Pump — Safety Shutoff (6 min hard limit)"
+  id: ro_pump_safety_shutoff
+  description: >
+    Failsafe: if the pump stays ON for 6 minutes for any reason (timer bug,
+    missed event, manual override), force it off and send a notification.
+  trigger:
+    - platform: state
+      entity_id: switch.ro_pump_controller_ro_pump_relay
+      to: "on"
+      for:
+        minutes: 6
+  action:
+    - service: switch.turn_off
+      target:
+        entity_id: switch.ro_pump_controller_ro_pump_relay
+
+    - service: timer.cancel
+      target:
+        entity_id: timer.ro_pump_timer
+
+    - service: light.turn_off
+      target:
+        entity_id: light.ro_pump_controller_button_led
+
+    - service: persistent_notification.create
+      data:
+        title: "⚠️ RO Pump Safety Shutoff"
+        message: >
+          The pump was forcibly stopped after 6 minutes.
+          Check the system before running again.
+        notification_id: "ro_pump_safety"
+
+  mode: single
